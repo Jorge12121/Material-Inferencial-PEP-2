@@ -1,0 +1,79 @@
+---
+title: "Regresion lineal jerarquica"
+author: "kkkkkkk"
+date: "2026-03-09"
+output: html_document
+---
+
+```{r , include=TRUE}
+
+```
+
+Iniciamos con la explicación de la construcción de modelos jerárquicos, y su importancia, por parte del profesor
+Obtener una muestra de 70 casos desde los datos disponibles en el archivo "datos-felicidad.csv", usando como semilla la edad + mes de nacimiento del miembro más joven.
+
+```{r, include=TRUE}
+set.seed(2103)
+
+datos <- read.csv("datos-felicidad.csv")
+head(datos, 6)
+
+# 1. Obtenemos 70 números de fila al azar
+filas_elegidas <- sample(1:nrow(datos), size = 70, replace = FALSE)
+
+# 2. Filtramos el Data Frame usando esas filas
+muestra <- datos[filas_elegidas, ]
+
+# Vemos la muestra
+head(muestra)
+```
+
+Consensuar qué variables deberían considerarse cómo predictores y cuáles deberían incluirse en el modelo como variables de control
+
+las variables de control son sexo y la edad, ya que son variables sociodemograficas 
+
+las variables predictoras son N_amigos y N_mascotas 
+
+Escribir código R para construir los modelos jerárquicos correspondientes.
+
+```{r , include=TRUE}
+# Bloque 1: Modelo solo con las variables de control
+modelo_control <- lm(Felicidad ~ Edad + Sexo, data = muestra)
+
+# Bloque 2: Modelo añadiendo los predictores (el modelo completo)
+modelo_completo <- lm(Felicidad ~ Edad + Sexo + N_amigos + N_mascotas, data = muestra)
+
+# Resumen de los modelos
+summary(modelo_control)
+summary(modelo_completo)
+
+# Para comparar los modelos y ver si los predictores realmente 
+# aportaron algo nuevo y significativo al modelo de control:
+anova(modelo_control, modelo_completo)
+
+```
+
+Evaluar la capacidad predictiva del mejor modelo (error cuadrático medio) con los datos no usados para construirlo.
+
+```{r , include=TRUE}
+# 1. Crear los datos de prueba (los que NO están en los 70 iniciales)
+# El signo menos (-) antes de filas_elegidas le dice a R: "dame todas las filas EXCEPTO estas"
+datos_prueba <- datos[-filas_elegidas, ]
+
+# 2. Usar el "mejor modelo" para predecir la felicidad de estos nuevos casos.
+# Supongamos que tu mejor modelo fue el 'modelo_completo'
+predicciones <- predict(modelo_completo, newdata = datos_prueba)
+
+# 3. Calcular el Error Cuadrático Medio (MSE)
+# Fórmula: Promedio de (Felicidad Real - Felicidad Predicha) al cuadrado
+mse <- mean((datos_prueba$Felicidad - predicciones)^2)
+
+# Imprimir el resultado
+print(paste("El Error Cuadrático Medio (MSE) es:", round(mse, 4)))
+
+# Opcional: Calcular la Raíz del Error Cuadrático Medio (RMSE) 
+# El RMSE es más fácil de interpretar porque está en la misma escala que tu variable "Felicidad"
+rmse <- sqrt(mse)
+print(paste("La Raíz del Error Cuadrático Medio (RMSE) es:", round(rmse, 4)))
+```
+

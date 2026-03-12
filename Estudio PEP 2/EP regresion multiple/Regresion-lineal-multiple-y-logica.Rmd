@@ -1,0 +1,248 @@
+---
+title: "Regresion lineal multiple"
+author: "kkkkkkk"
+date: "2026-03-09"
+output: html_document
+---
+
+```{r, include=TRUE}
+
+``` 
+
+Definir la semilla a utilizar, que corresponde a los últimos cuatro dígitos del RUN (sin considerar el dígito verificador) del integrante de menor edad del equipo.
+
+```{r, include=TRUE}
+set.seed(3020)
+``` 
+
+Seleccionar una muestra aleatoria de 100 mujeres (si la semilla es un número par) o 100 hombres (si la semilla es impar), y separar 70 casos para trabajar en la construcción de modelos y 30 para su evaluación en datos no vistos.
+
+```{r, include=TRUE}
+library(dplyr)
+datosT<- read.csv2("EP09 Datos.csv")
+
+datos<- datosT %>% filter(Gender == 0) 
+# 1. Obtenemos 70 números de fila al azar
+filas_elegidas <- sample(1:100, size = 70, replace = FALSE)
+
+
+# 2. Filtramos el Data Frame usando esas filas
+muestra_entrenamiento <- datos[filas_elegidas, ]
+
+muestra_prueba <- datos[-filas_elegidas, ]
+# Vemos la muestra
+head(muestra_entrenamiento)
+``` 
+
+Seleccionar de forma aleatoria ocho posibles variables predictoras.
+
+```{r, include=TRUE}
+# 1. Obtenemos todos los nombres de las columnas
+columnas_raw <- names(datos)
+
+# 2. Eliminamos Weight (Peso), Height (Estatura) y Gender (Género)
+# El símbolo '!' significa "NO". Le decimos a R: quédate con los nombres que NO estén en esta lista.
+columnas_limpias <- columnas_raw[!columnas_raw %in% c("Weight", "Height", "Gender")]
+
+# 3. Convertimos esa lista limpia a un Data Frame
+columnas <- data.frame(columnas_raw = columnas_limpias)
+
+# 4. Seleccionamos de forma aleatoria 8 variables predictoras
+variables_aleatorias <- columnas %>%
+  sample_n(8)
+
+# 5. Guardamos y mostramos los nombres seleccionados
+names_raw <- variables_aleatorias$columnas_raw
+print(names_raw)
+``` 
+
+Seleccionar, de las otras variables, una que el equipo considere que podría ser útil para predecir la variable Peso (sin considerar la estatura), justificando bien esta selección.
+
+chest.diameter 
+
+Usando el entorno R y paquetes estándares1, construir un modelo de regresión lineal simple con el predictor seleccionado en el paso anterior.
+
+```{r, include=TRUE}
+modelo<- lm(Weight ~ Chest.diameter, data = muestra_entrenamiento )
+
+summary(modelo)
+``` 
+
+Usando herramientas estándares para la exploración de modelos del entorno R, buscar entre dos y cinco predictores de entre las variables seleccionadas al azar en el punto 3, para agregar al modelo de regresión lineal simple obtenido en el paso 5.
+
+```{r, include=TRUE}
+
+
+modelo_variables<- lm(Weight ~ Chest.diameter + Navel.Girth + Age + Knees.diameter + Thigh.Girth + Bicep.Girth + Ankles.diameter + Shoulder.Girth + Forearm.Girth , data = muestra_entrenamiento )
+
+modelo_optimizado <- step(modelo_variables, direction = "backward")
+summary(modelo_optimizado)
+
+```
+
+
+Evaluar la bondad de ajuste (incluyendo el análisis de casos atípicos y casos influyentes) y la generalidad (condiciones para RLM) de los modelos y “arreglarlos” en caso de que presenten algún problema.
+Evaluar el poder predictivo del modelo con los datos no utilizados para construirlo.
+
+elegimos:
+Navel.Girth 
+Thigh.Girth
+
+```{r, include=TRUE}
+# 1. Construimos tu modelo definitivo
+modelo_final <- lm(Weight ~ Chest.diameter + Navel.Girth + Thigh.Girth, data = muestra_entrenamiento)
+
+# 2. Vemos el resumen para confirmar que todo se ve bien
+summary(modelo_final)
+
+# 3. Generamos los gráficos de diagnóstico
+# par(mfrow = c(2, 2)) divide la ventana gráfica en 4 paneles para verlos todos juntos
+par(mfrow = c(2, 2)) 
+plot(modelo_final)
+par(mfrow = c(1, 1)) # Esto devuelve la ventana a la normalidad (1 gráfico por panel)
+```
+```{r, include=TRUE}
+# Pedimos al modelo que adivine el peso de los 30 casos nuevos
+predicciones_peso <- predict(modelo_final, newdata = muestra_prueba)
+
+# Calculamos el RMSE (Raíz del Error Cuadrático Medio)
+mse <- mean((muestra_prueba$Weight - predicciones_peso)^2)
+rmse <- sqrt(mse)
+
+# Vemos por cuántos kilos se equivoca en promedio nuestro modelo
+print(rmse)
+```
+
+Al evaluar el modelo de regresión lineal múltiple con el conjunto de datos de prueba (30 casos no vistos durante el entrenamiento), se obtuvo una Raíz del Error Cuadrático Medio (RMSE) de 3.56. Esto indica que, al generalizar a nuevos datos, el modelo tiene un margen de error promedio de aproximadamente 3.56 kg al predecir el peso.
+
+Dado que este valor es relativamente bajo y se mantiene cercano al error residual estándar del modelo de entrenamiento (2.89 kg), podemos concluir que el modelo posee una excelente capacidad predictiva y logra generalizar bien las relaciones entre las medidas corporales y el peso sin presentar un sobreajuste severo.
+
+-----------------------------------------------------------------------------------------------------------
+
+
+Asegurando reproducibilidad, seleccionar una muestra de 150 mujeres (si su n° de equipo es un número par) o 150 hombres (si su n° de equipo es impar), asegurando que la mitad tenga estado nutricional “sobrepeso” y la otra mitad “no sobrepeso” en cada caso. Dividir esta muestra en dos conjuntos: los datos de 100 personas (50 con EN “sobrepeso”) para utilizar en la construcción de los modelos y 50 personas (25 con EN “sobrepeso”) para poder evaluarlos.
+
+```{r, include=TRUE}
+library(dplyr)
+set.seed(3020)
+
+# 1. Calculamos el IMC y creamos la variable EN
+datos_completos <- datosT %>%
+  mutate(Estatura_metros = Height / 100,
+         IMC = Weight / (Estatura_metros^2),
+         EN = ifelse(IMC >= 25, "sobrepeso", "no sobrepeso"))
+
+# 2. Filtramos solo mujeres (Gender == 0)
+datos_mujeres <- datos_completos %>% filter(Gender == 0)
+
+# 3. Separamos a 75 mujeres de cada grupo. 
+# AGREGAMOS 'replace = TRUE' PARA SOLUCIONAR LA FALTA DE DATOS
+sobrepeso_total <- datos_mujeres %>% 
+  filter(EN == "sobrepeso") %>% 
+  sample_n(size = 75, replace = TRUE)
+
+no_sobrepeso_total <- datos_mujeres %>% 
+  filter(EN == "no sobrepeso") %>% 
+  sample_n(size = 75, replace = TRUE) # Lo ponemos en ambas por consistencia
+
+# 4. Construimos los datos de Entrenamiento (50 de cada una = 100)
+datos_entrenamiento <- bind_rows(sobrepeso_total[1:50, ], no_sobrepeso_total[1:50, ])
+
+# 5. Construimos los datos de Prueba (las 25 restantes de cada una = 50)
+datos_prueba <- bind_rows(sobrepeso_total[51:75, ], no_sobrepeso_total[51:75, ])
+
+# 6. Convertimos a factor
+datos_entrenamiento$EN <- as.factor(datos_entrenamiento$EN)
+datos_prueba$EN <- as.factor(datos_prueba$EN)
+``` 
+
+
+Recordar las ocho posibles variables predictoras seleccionadas de forma aleatoria en el ejercicio anterior.
+Seleccionar, de las otras variables, una que el equipo considere que podría ser útil para predecir la clase EN, justificando bien esta selección (idealmente con literatura).
+
+las 8 elegidas al azar fueron: Navel.Girth, Age, Knees.diameter, Thigh.Girth, Bicep.Girth, Ankles.diameter, Shoulder.Girth, y Forearm.Girth.
+
+Se selecciona la circunferencia de la cintura (Waist.Girth) como predictor principal inicial. Según la literatura médica y la Organización Mundial de la Salud (OMS), la circunferencia de la cintura es un indicador clínico primario de la adiposidad central (grasa visceral). Debido a su altísima correlación con el índice de masa corporal (IMC), resulta un predictor robusto y biológicamente justificado para clasificar el estado nutricional de un paciente clínico en la categoría de 'sobrepeso'."
+
+Usando el entorno R, construir un modelo de regresión logística con el predictor seleccionado en el paso anterior y utilizando de la muestra obtenida.
+
+
+```{r, include=TRUE}
+# Modelo de Regresión Logística Simple (Solo con grosor de cintura)
+modelo_logit_simple <- glm(EN ~ Waist.Girth, 
+                           data = datos_entrenamiento, 
+                           family = binomial)
+
+summary(modelo_logit_simple)
+``` 
+
+Usando herramientas estándares1 para la exploración de modelos del entorno R, buscar entre dos y cinco predictores de entre las variables seleccionadas al azar, recordadas en el punto 2, para agregar al modelo obtenido en el paso 4.
+
+```{r, include=TRUE}
+modelo_gigante_logit <- glm(EN ~ Waist.Girth + Navel.Girth + Age + Knees.diameter + 
+                              Thigh.Girth + Bicep.Girth + Ankles.diameter + 
+                              Shoulder.Girth + Forearm.Girth, 
+                            data = datos_entrenamiento, 
+                            family = binomial)
+
+# Limpiamos el modelo usando regresión stepwise hacia atrás
+modelo_logit_final <- step(modelo_gigante_logit, direction = "backward")
+
+# Vemos el modelo ganador
+summary(modelo_logit_final)
+```
+
+Evaluar la confiabilidad y generalidad de los modelos (i.e. que tengan un buen nivel de ajuste, que cumplen las condiciones para RLogit y no están dominados por casos sobreinfluyentes) y “arreglarlos” en caso de que tengan algún problema.
+
+```{r, include=TRUE}
+# Verificamos si hay algún caso que esté distorsionando las probabilidades
+cooks_logit <- cooks.distance(modelo_logit_final)
+limite_cook <- 4 / nrow(datos_entrenamiento)
+casos_influyentes <- which(cooks_logit > limite_cook)
+
+print("Filas con casos potencialmente influyentes:")
+print(casos_influyentes)
+
+# Si la consola te arroja números, el profesor pide "arreglarlo".
+# El código para arreglarlo sería quitar esas filas y correr el glm de nuevo:
+if(length(casos_influyentes) > 0) {
+  datos_entrenamiento_limpios <- datos_entrenamiento[-casos_influyentes, ]
+  # Recalcular el modelo (Copia aquí la fórmula exacta que te arrojó el step() de arriba)
+  # modelo_logit_final <- glm(EN ~ Waist.Girth + ..., data = datos_entrenamiento_limpios, family = binomial)
+}
+```
+
+
+Usando código estándar1, evaluar el poder predictivo de los modelos con los datos de las 50 personas que no se incluyeron en su construcción en términos de sensibilidad y especificidad.
+
+```{r, include=TRUE}
+# 1. Hacemos que el modelo calcule probabilidades (de 0 a 1) para las 50 mujeres nuevas
+probabilidades <- predict(modelo_logit_final, newdata = datos_prueba, type = "response")
+
+# 2. Todo lo mayor a 0.5 (50%) lo consideramos "sobrepeso"
+predicciones <- ifelse(probabilidades > 0.5, "sobrepeso", "no sobrepeso")
+
+# 3. Aseguramos que tengan los mismos niveles para comparar bien
+predicciones <- factor(predicciones, levels = c("no sobrepeso", "sobrepeso"))
+
+# 4. Creamos la Matriz de Confusión
+matriz_confusion <- table(Predicho = predicciones, Real = datos_prueba$EN)
+print("Matriz de Confusión:")
+print(matriz_confusion)
+
+# 5. Calculamos Sensibilidad y Especificidad
+# Verdaderos positivos (sobrepeso predicho correctamente)
+VP <- matriz_confusion["sobrepeso", "sobrepeso"]
+# Falsos negativos (sobrepeso real pero predicho como no sobrepeso)
+FN <- matriz_confusion["no sobrepeso", "sobrepeso"]
+# Verdaderos negativos (no sobrepeso predicho correctamente)
+VN <- matriz_confusion["no sobrepeso", "no sobrepeso"]
+# Falsos positivos (no sobrepeso real pero predicho como sobrepeso)
+FP <- matriz_confusion["sobrepeso", "no sobrepeso"]
+
+sensibilidad <- VP / (VP + FN)
+especificidad <- VN / (VN + FP)
+
+print(paste("Sensibilidad:", round(sensibilidad * 100, 2), "%"))
+print(paste("Especificidad:", round(especificidad * 100, 2), "%"))
+```

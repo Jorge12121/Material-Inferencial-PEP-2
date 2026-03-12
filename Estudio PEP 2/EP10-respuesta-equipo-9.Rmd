@@ -1,0 +1,256 @@
+---
+title: "EP10-respuesta-equipo-9"
+date: "2026-01-17"
+output: html_document
+---
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+``` 
+
+# 1. CARGA DE LIBRERÍAS Y DATOS
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+library(dplyr)
+library(car)
+library(pROC)
+
+# Cargar datos
+datos <- read.csv2("EP09 Datos.csv", stringsAsFactors = TRUE)
+```
+
+# 2. PREPARACIÓN DE VARIABLES (IMC y EN)
+
+A continuación, de los datos extraídos creamos una nueva variable $IMC=\frac{w}{h^2}$ (w: peso en kilogramos, h: estatura en metros), y con esta se obtiene otra variable dicotómica: estado nutricional *EN*, y sus niveles son 'sobrepeso' ($IMC\geq23,2$) y no sobrepeso ($IMC<23,2$).
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+# Primero creamos la variable respuesta.
+# IMC = Peso / Estatura(m)^2. (Height está en cm).
+
+datos$Estatura_m <- datos$Height / 100
+datos$IMC <- datos$Weight / (datos$Estatura_m^2)
+
+# Crear Estado Nutricional (EN)
+# 1 = Sobrepeso (IMC >= 23.2), 0 = No Sobrepeso (IMC < 23.2)
+datos$EN <- ifelse(datos$IMC >= 23.2, 1, 0)
+datos$EN <- factor(datos$EN, levels = c(0, 1), labels = c("NoSobrepeso", "Sobrepeso"))
+
+cat("Distribución general de la variable EN creada:\n")
+print(table(datos$EN))
+```
+
+# 3. FILTRADO Y MUESTREO (BALANCEADO) - Semilla 9253
+
+Se filtran el conjunto de datos para obtener solo la información de 150 hombres, la mitad con sobrepeso y la otra mitad sin sobrepeso. Con esta separación se cran dos conjuntos de datos, 100 observaciones (la mitad con sobrepeso) para la construcción de los modelos y 50 personas (mitad con sobrepeso) para su evaluación.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+set.seed(9253) # Semilla del equipo 
+
+# A. Filtrar Hombres (Gender == 1) 
+datos_hombres <- subset(datos, Gender == 1)
+
+# B. Separar grupos para balanceo 
+grupo_sp <- subset(datos_hombres, EN == "Sobrepeso")
+grupo_no_sp <- subset(datos_hombres, EN == "NoSobrepeso")
+
+# C. Seleccionar 75 de cada grupo (Total 150)
+idx_sp <- sample(1:nrow(grupo_sp), 75)
+idx_no_sp <- sample(1:nrow(grupo_no_sp), 75)
+
+muestra_sp <- grupo_sp[idx_sp, ]
+muestra_no_sp <- grupo_no_sp[idx_no_sp, ]
+
+# D. Dividir en Entrenamiento (100) y Prueba (50)
+# Entrenamiento: 50 SP + 50 NoSP
+idx_train_sp <- sample(1:75, 50)
+idx_train_no_sp <- sample(1:75, 50)
+
+datos_ent <- rbind(
+  muestra_sp[idx_train_sp, ],
+  muestra_no_sp[idx_train_no_sp, ]
+)
+
+datos_pru <- rbind(
+  muestra_sp[-idx_train_sp, ],
+  muestra_no_sp[-idx_train_no_sp, ]
+)
+
+cat("\nDatos de Entrenamiento (Balanceados):\n")
+print(table(datos_ent$EN))
+```
+
+# 4. DEFINICIÓN DE VARIABLES 
+
+Se definen las variables que serán usadas en la creación de los modelos de regresión logística. En específico, se recupera del ejercicio anterior las ocho variables aleatorias seleccionadas, y se usa la variable considerada para el modelo de regresión lineal anterior. Se mantuvo esta variable como predictor porque, según el estudio de Ghoshhajra et al. (2011), está demostrado que presenta una relación significativa con el *IMC*.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+# Variable Teórica usada en EP09: Chest.Girth 
+var_teorica <- "Chest.Girth"
+
+# Variables Aleatorias usadas en EP09 
+vars_aleatorias <- c("Bitrochanteric.diameter", 
+                     "Elbows.diameter", 
+                     "Waist.Girth", 
+                     "Chest.diameter", 
+                     "Knee.Girth", 
+                     "Navel.Girth", 
+                     "Wrists.diameter", 
+                     "Thigh.Girth")
+
+cat("\nVariable Teórica seleccionada: ", var_teorica, "\n")
+cat("Variables Aleatorias recuperadas del EP09:\n")
+vars_aleatorias
+```
+
+# 5. REGRESIÓN LOGÍSTICA SIMPLE (RLogitS)
+
+Se procede a crear el modelo de regresión logística simple con la variable predictora seleccionada, y la variable de respuesta del estado nutricional *EN*.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+# Modelo nulo para comparar
+modelo_nulo <- glm(EN ~ 1, family = binomial(link = "logit"), data = datos_ent)
+cat("AIC modelo nulo:", modelo_nulo$aic)
+
+# Usamos la variable teórica (Chest.Girth) para predecir EN
+
+fmla_simple <- as.formula(paste("EN ~", var_teorica))
+modelo_simple <- glm(fmla_simple, family = binomial(link = "logit"), data = datos_ent)
+
+cat("\n--- Resumen Modelo Simple (Chest.Girth) ---\n")
+summary(modelo_simple)
+cat("\n--- Comparar con modelo nulo mediante la prueba Likelihood Ratio Test ---\n")
+print(anova(modelo_simple, test = "LRT"), signif.stars = FALSE)
+```
+
+El modelo RLogS reporta que la anchura del pecho es efectivamente un predictor significativo para la respuesta del estado nutricional si consideramos un nivel de significación de $\alpha=0.05$ (p<0.001). Además, la desviación con un predictor disminuyó de 138.629 a 92.384, y esta disminución es significativa (p<0.001).
+El criterio de información de Akaike reportado por el modelo nulo es $AIC=140.629$ y del modelo construido $AIC=96.384$. Como el AIC del modelo construido con una variable es menor que el modelo nulo, el modelo construido tiene buena bondad de ajuste y es representativo.
+
+# 6. REGRESIÓN LOGÍSTICA MÚLTIPLE (RLogitM)
+
+Ahora se crea el modelo de regrisión logística múltiple usando las ocho variables anteriores como candidatos a predictor. Para la selección de predictores se usa regresión paso a paso (*stepwise*).
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+# Búsqueda Stepwise usando las variables del EP09
+
+# Definir el modelo completo (Teórica + las 8 aleatorias)
+
+todas_vars <- unique(c(var_teorica, vars_aleatorias))
+fmla_full <- as.formula(paste("EN ~", paste(todas_vars, collapse=" + ")))
+
+modelo_full <- glm(fmla_full, family = binomial(link = "logit"), data = datos_ent)
+
+# Selección Stepwise (AIC)
+modelo_final <- step(modelo_simple, 
+                     scope = list(lower = modelo_simple, upper = modelo_full), 
+                     direction = "both", 
+                     trace = 0) 
+
+cat("\n--- Resumen Modelo Múltiple Final ---\n")
+summary(modelo_final)
+cat("\n--- Comparar con modelo simple mediante LRT ---\n")
+print(anova(modelo_simple, modelo_final, test = "LRT"), signif.stars = FALSE)
+```
+
+El modelo final incluye a las variables de anchura del muslo, diámetro bitrocantéreo y grosor a la altura del ombligo. Las variables incluidas demuestran ser estadísticamente significativas manteniendo la significación, pero la anchura de pecho pierde significancia (p=0.185). La desviación se redujo de 92.384 para el modelo simple a 67.602 con la inclusión de las variables, y esta reducción es significativa (p<0.001). Además, el AIC se redujo de 96.384 a 77.602, lo que representa que las nuevas variables incorporadas al modelo resultan en un mejor ajuste.
+
+# 7. EVALUACIÓN DE SUPUESTOS (CONFIABILIDAD)
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+cat("\n--- Diagnósticos del Modelo Final ---\n")
+
+# A. Linealidad (Residuos vs Predictores lineales)
+residualPlots(modelo_final, type="deviance", fitted=FALSE)
+
+# B. Independencia de Errores
+dw_test <- durbinWatsonTest(modelo_final)
+cat("Test Durbin-Watson (p > 0.05 es bueno):\n")
+dw_test
+
+# C. Multicolinealidad (VIF)
+cat("\n--- Análisis de Multicolinealidad (VIF) ---\n")
+
+  # 1. Calcular VIF
+  vif_valores <- vif(modelo_final)
+  
+  # MOSTRAR COMO TABLA ORDENADA (Texto)
+  # Convertimos a data.frame para que se vea ordenado en la consola/PDF
+  vif_tabla <- data.frame(
+    Variable = names(vif_valores), 
+    VIF = round(vif_valores, 4) # Redondeamos a 4 decimales
+  )
+  print(vif_tabla)
+  
+  #MOSTRAR COMO GRÁFICO (Visual)
+  # Esto generará una imagen que puedes poner en el PDF
+  par(mar=c(5, 10, 4, 2)) # Ajustar márgenes para que se lean los nombres
+  barplot(vif_valores, 
+          main = "Factor de Inflación de la Varianza (VIF)", 
+          horiz = TRUE,       # Barras horizontales para leer mejor los nombres
+          col = "steelblue",  # Color agradable
+          las = 1,            # Nombres de variables horizontales
+          xlim = c(0, max(vif_valores) + 2)) # Espacio extra
+  
+  # Línea de referencia (VIF = 5 es el umbral de preocupación)
+  abline(v = 5, col = "red", lty = 2, lwd = 2)
+  text(5, 0.5, "Umbral Crítico (5)", col = "red", pos = 3)
+  
+
+
+# D. Casos Influyentes (Cook's Distance)
+n <- nrow(datos_ent)
+influyentes <- which(cooks.distance(modelo_final) > 4/n)
+cat("Cantidad de casos influyentes (Cook > 4/n):", length(influyentes), "\n")
+
+
+influencePlot(modelo_final)
+```
+
+Podemos ver que se cumple la condición de linealidad entre los predictores y la respuesta transformada, y para cada variable, la prueba de curvatura resulta en no existir evidencia para descartar que las variables siguen una relación lineal. Para la condición de residuos independientes entre sí, la prueba de Durbin-Watson reporta que no existe evidencia de que no se cumple la condición (p<0.001). Para la condición de multicolinealidad entre los predictores, los factores de inflación de la varianza (VIF) no son mayores de 2, por lo tanto existe una mínima multicolinealidad entre los predictores que no es motivo de preocupación. Finalmente, para la condicion de casos influyentes, ninguna observacion tiene un valor alto de la distancia de Cook que sea preocupante, así que no existen casos influyentes.
+
+# 8. EVALUACIÓN PREDICTIVA (SET DE PRUEBA)
+
+Se evalúa el poder predictivo del modelo múltiple final con la curva de calibración ROC y el área bajo la curva AUC.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+# Usamos los 50 datos reservados para ver qué tan bien predice.
+
+probs_test <- predict(modelo_final, newdata = datos_pru, type = "response")
+preds_clase <- ifelse(probs_test >= 0.5, "Sobrepeso", "NoSobrepeso")
+preds_clase <- factor(preds_clase, levels = c("NoSobrepeso", "Sobrepeso"))
+
+# Matriz de Confusión
+tabla_conf <- table(Predicho = preds_clase, Real = datos_pru$EN)
+cat("\n--- Matriz de Confusión (Datos Prueba) ---\n")
+tabla_conf
+
+# Métricas Manuales
+VN <- tabla_conf["NoSobrepeso", "NoSobrepeso"]
+VP <- tabla_conf["Sobrepeso", "Sobrepeso"]
+FN <- tabla_conf["NoSobrepeso", "Sobrepeso"]
+FP <- tabla_conf["Sobrepeso", "NoSobrepeso"]
+
+sensibilidad <- VP / (VP + FN)
+especificidad <- VN / (VN + FP)
+exactitud <- (VP + VN) / sum(tabla_conf)
+
+sensibilidad
+especificidad
+exactitud
+
+# Curva ROC
+roc_obj <- roc(datos_pru$EN, probs_test)
+plot(roc_obj, main="Curva ROC - Modelo Final", col="blue", print.auc=TRUE)
+```
+
+Según el gráfico, el valor AUC del modelo es 0.922, lo que significa que el modelo tiene un buen desempeño para clasificar el estado nutricional según las variables predictoras elegidas.
+
+# CONCLUSIÓN
+
+Finalmente, después de crear un modelo de regresión logística simple con una variable bien justificada, y añadir más variables predictoras mediante regresión paso a paso, se llegó a un modelo de regresión logística múltiple con un mejor poder predictivo que el primer modelo simple. Para evaluar el rendimiento del modelo final se usaron múltiples funciones y métodos, los que resultaron en que el modelo tiene una adecuada calidad, confiabilidad y generalidad.
+
+# Lista de referencias:
+- Ghoshhajra, B. B., Engel, L.-C., Major, G. P., Verdini, D., Sidhu, M., Károlyi, M., Abbara, S., Hoffmann, U., Kalra, M., & Brady, T. J. (2011). Direct chest area measurement: A potential anthropometric replacement for BMI to inform cardiac CT dose parameters? Journal of Cardiovascular Computed Tomography, 5(4), 240–246. https://doi.org/10.1016/j.jcct.2011.06.003

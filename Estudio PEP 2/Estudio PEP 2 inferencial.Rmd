@@ -1,0 +1,85 @@
+---
+title: "Estudio PEP 2"
+author: "kkkkkkk"
+date: "2026-03-09"
+output: html_document
+---
+
+```{r , include=TRUE}
+
+```
+
+Inspirados en el trabajo de Heck & Pamuk (1997) sobre el riesgo de desarrollar cáncer de mama postmenopausia (CMP), vamos a obtener un modelo de regresión lineal simple para los siguientes datos:
+
+Ingreso
+[USD año]	Prevalencia
+CMP [%]
+4.250	4,12
+8.500	4,19
+12.800	4,35
+19.800	4,66
+25.500	5,26
+¿Existe una relación entre la prevalencia de CMP y el ingreso anual de las mujeres estudiadas?
+```{r , include=TRUE}
+# Ingresamos los datos de Ingreso (quitando el punto de los miles)
+ingreso <- c(4250, 8500, 12800, 19800, 25500)
+
+# Ingresamos los datos de Prevalencia (cambiando la coma por punto)
+prevalencia <- c(4.12, 4.19, 4.35, 4.66, 5.26)
+
+# Creamos el modelo de regresión (Prevalencia en función del Ingreso)
+modelo <- lm(prevalencia ~ ingreso)
+
+# Vemos los resultados estadísticos
+summary(modelo)
+
+# Hacemos un gráfico para visualizarlo (opcional pero recomendado)
+plot(ingreso, prevalencia, main="Relación entre Ingreso y Prevalencia de CMP",
+     xlab="Ingreso Anual (USD)", ylab="Prevalencia CMP (%)", pch=19, col="blue")
+abline(modelo, col="red", lwd=2) # Añade la línea de tendencia
+```
+Sí, existe una relación, y es una relación positiva.
+Al correr la función summary(modelo) en R, verás un "p-value" (valor p) para el Ingreso. El valor p que resulta es aproximadamente 0.0104. Como este valor es menor a 0.05 (el nivel de significancia estándar), podemos afirmar estadísticamente que sí existe una relación significativa: a medida que aumenta el ingreso, también aumenta la prevalencia de cáncer de mama postmenopausia (CMP) en esta muestra.
+
+
+¿Qué tan fuerte es esta relación?
+```{r , include=TRUE}
+
+# Calculamos la correlación
+correlacion <- cor(ingreso, prevalencia)
+print(correlacion)
+summary(modelo)
+```
+Al correr ese código, R te dará un valor de 0.957.
+Esto significa que la relación es positiva y muy fuerte (casi perfecta, ya que está muy cerca de 1).
+Además, si miras de nuevo el summary(modelo) del paso anterior, verás un valor llamado "Multiple R-squared" ($R^2$). El valor es 0.917. Esto significa que el 91.7% de la variación en la prevalencia del CMP en estos datos se puede explicar por los cambios en el ingreso anual.
+
+
+¿Qué podríamos recomendar a un gobierno si desea disminuir la prevalencia de este tipo de cáncer?
+
+
+Ojo aquí! Esta es una "pregunta trampa" clásica de estadística.
+
+Acabamos de demostrar que a mayor ingreso, hay mayor cáncer. ¿Significa esto que el gobierno debería bajarle el sueldo a las mujeres para que no les dé cáncer? ¡Por supuesto que no!
+
+Aquí entra la regla de oro de la estadística: Correlación no implica causalidad. El dinero no causa cáncer biológicamente. Lo que pasa es que el "Ingreso" es una variable que está asociada a estilos de vida que sí son factores de riesgo. Por ejemplo, en países o sectores de mayores ingresos, las mujeres tienden a:
+
+Tener su primer hijo a mayor edad (o no tener hijos).
+
+Llevar dietas más ricas en calorías, grasas o alimentos ultraprocesados.
+
+Tener estilos de vida más sedentarios (trabajos de oficina).
+
+Tener mayor acceso a terapias de reemplazo hormonal.
+
+Vivir más años (el cáncer está muy asociado a la longevidad).
+
+La recomendación al gobierno sería:
+El gobierno no debe intervenir en los ingresos, sino implementar políticas públicas de salud enfocadas en los hábitos asociados a esos mayores ingresos. Se recomendaría:
+
+Fomentar campañas de detección temprana (mamografías) especialmente en poblaciones urbanas y de altos ingresos.
+
+Promover políticas que faciliten un estilo de vida saludable (alimentación balanceada y ejercicio) para combatir el sedentarismo asociado a trabajos mejor remunerados.
+
+Educar sobre los factores de riesgo reproductivos y hormonales.
+

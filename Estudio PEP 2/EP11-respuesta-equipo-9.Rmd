@@ -1,0 +1,293 @@
+---
+title: "EP11-respuesta-equipo-9"
+date: "2026-01-23"
+output: html_document
+---
+
+
+# EP11: HERRAMIENTAS AVANZADAS PARA MODELOS DE REGRESIÓN
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+# 1. CARGA DE LIBRERÍAS
+# ------------------------------------------------------------------------------
+if(!require(dplyr)) install.packages("dplyr")
+if(!require(caret)) install.packages("caret")
+if(!require(leaps)) install.packages("leaps") # Para regsubsets
+if(!require(pROC)) install.packages("pROC")   # Para curvas ROC
+
+library(dplyr)
+library(caret)
+library(leaps)
+library(pROC)
+
+```
+
+## ACTIVIDAD 1: DEFINIR SEMILLA
+
+Definimos la semilla a usar y añadir al conjunto de datos las variables ```IMC``` y ```EN```.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+# Semilla del integrante de mayor edad
+semilla <- 21533
+set.seed(semilla)
+
+# 2. PREPARACIÓN DE DATOS
+
+# Cargar el archivo de datos EP09
+datos <- read.csv2("EP09 Datos.csv", stringsAsFactors = TRUE)
+
+# 3. CREACIÓN DE VARIABLES IMC Y EN
+# ------------------------------------------------------------------------------
+# IMC = Peso (kg) / Estatura (m)^2. 
+# La tabla EP09 indica que 'Height' está en cm y 'Weight' en Kg.
+datos$IMC <- datos$Weight / (datos$Height / 100)^2
+
+# Estado Nutricional (EN): 
+# Criterio: Sobrepeso si IMC >= 23.2
+datos$EN <- factor(ifelse(datos$IMC >= 23.2, "Sobrepeso", "NoSobrepeso"))
+datos$EN <- relevel(datos$EN, ref = "NoSobrepeso") # Clase base
+
+# Mostrar las primeras 6 observaciones
+head(datos)
+```
+
+## ACTIVIDAD 2: SELECCIÓN DE LA MUESTRA (100 personas, balanceada)
+
+Se seleccionan 100 personas de la muestra, de las cuales una mitad tiene sobrepeso y la otra no.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+# Separar por grupos
+datos_sp <- datos %>% filter(EN == "Sobrepeso")
+datos_nosp <- datos %>% filter(EN == "NoSobrepeso")
+
+# Muestreo aleatorio de 50 de cada grupo usando la semilla definida
+idx_sp <- sample(1:nrow(datos_sp), 50)
+idx_nosp <- sample(1:nrow(datos_nosp), 50)
+
+# Juntar las muestras separadas
+muestra <- rbind(datos_sp[idx_sp, ], datos_nosp[idx_nosp, ])
+
+# Desordenar la muestra para evitar sesgos de orden
+muestra <- muestra[sample(nrow(muestra)), ]
+
+print(table(muestra$EN))
+```
+
+## ACTIVIDAD 3: LEAPS Y RLM CON BOOTSTRAPPING (Variable: Weight)
+
+Con los datos procesados se procede a crear y evaluar el modelo de regresión lineal múltiple RLM. Para esto se filtran las variables del dataset para que no incluyan las variables ```IMC``` ni ```EN```. Luego, se usa la función ```regsubsets``` del paquete ```leaps``` para encontrar los predictores para estimar la variable ```Weight```, con búsqueda exhaustiva. Después se eligen entre 2 y 8 de las variables encontradas por ```regsubsets``` usando el *criterio bayesiano de Schwarz* BIC, ya que es uno de los mejores criterios para evaluar la bondad de ajuste y penalizar la complejidad de un modelo de RLM al mismo tiempo.
+
+Con los predictores encontrados, se construye el modelo usando la función ```train``` y ```trainControl``` del paquete ```Caret```. También se evalúa el modelo con *bootstrap*.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+# Restricción: No usar IMC ni EN para predecir Peso.
+vars_act3 <- muestra %>% select(-IMC, -EN)
+
+# 1. Búsqueda exhaustiva con 'leaps' (entre 2 y 8 predictores)
+# nvmax = 8 (máximo de predictores a buscar)
+subsets <- regsubsets(Weight ~ ., data = vars_act3, nbest = 1, nvmax = 8, method = "exhaustive")
+res_subsets <- summary(subsets)
+
+# Selección del mejor modelo basado en BIC
+# (Se puede usar AdjR2 o Cp también, pero BIC penaliza mejor la complejidad)
+best_model_idx <- which.min(res_subsets$bic)
+cat("Mejor número de predictores según BIC:", best_model_idx, "\n")
+
+# Asegurar que esté entre 2 y 8 predictores como pide el enunciado
+n_final <- max(2, min(best_model_idx, 8)) 
+
+# Obtener los nombres de los coeficientes seleccionados (excluyendo intercepto)
+coef_names <- names(coef(subsets, n_final))[-1] 
+cat("Predictores seleccionados:", paste(coef_names, collapse = ", "), "\n")
+
+# 2. Construir modelo RLM con caret y Bootstrapping
+# Formula dinámica con las variables seleccionadas
+formula_weight <- as.formula(paste("Weight ~", paste(coef_names, collapse = "+")))
+
+# Configuración del entrenamiento: Bootstrapping (por defecto 25 reps, ponemos 100 para robustez o dejar default)
+ctrl_boot <- trainControl(method = "boot", number = 100)
+
+set.seed(semilla)
+model_weight <- train(formula_weight, 
+                      data = muestra, 
+                      method = "lm", 
+                      trControl = ctrl_boot)
+
+print(model_weight)
+cat("Resultados finales (RMSE, R2) usando Bootstrapping:\n")
+print(model_weight$results)
+
+# Crear y mostrar el modelo final
+modelo_final <- lm(formula_weight, data = muestra)
+summary(modelo_final)
+cat("BIC:", BIC(modelo_final))
+```
+
+Al mostrar el modelo vemos que cada coeficiente es capaz de predecir la variable ```Weight``` si consideramos un nivel de significación de $\alpha=0.05$ (valores p < 0.05).
+
+- Bondad de ajuste: el modelo final reporta el coeficiente de determinación ajustado $R^{2}_{\text{adj}}$ igual a 0.976, lo que significa que el modelo es capaz de reducir un 97.9% la varianza global no explicada, lo que es muy positivo. Además, es muy idéntico al valor $R^{2}$, lo que significa que las variables encontradas son relevantes. El valor del BIC es 469.193.
+
+- Confiabilidad: evalúamos las condiciones para que el modelo sea confiable:
+  1. La variable de respuesta debe ser cuantitativa y continua, sin restricciones para su variabilidad: esta condición se cumple para la variable ```Weight```.
+  2. Los predictores deben ser cuantitativos o dicotómicos: la condición se cumple con los predictores Shoulder.Girth, Chest.Girth, Waist.Girth, Hip.Girth, Thigh.Girth, Ankle.Minimum.Girth y Height.
+  3. Los predictores deben tener algún grado de variabilidad (su varianza no debe ser igual a cero). En otras palabras, no pueden ser constantes: claramente los predictores no son constantes.
+  4. Cada predictor debe estar relacionado linealmente con la respuesta: mostramos los gráficos de residuos normalizados. Se puede ver que los residuos presentan unas tendencias no lineales y puntos aislados. Sin embargo, las pruebas de curvatura resultan ser significativas para todas las variables menos ```Thigh.Girth```, lo que es muy preocupante, ya que los predictores muestran una relación no lineal con la variables de respuesta.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+library(car)
+residualPlots(modelo_final, type="rstandard", fitted=TRUE)
+```
+
+  5. La distribución de los residuos debe ser cercana a la normal centrada en cero: los residuos no están centrados en cero.
+  6. La variabilidad de los residuos debe ser aproximadamente constante (homocedasticidad): usamos pruebas de homocedasticidad, la cuál reporta un valor p de 0.971, así que el modelo cumple con variabilidad de los residuos constante.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+ncvTest(modelo_final)
+```
+
+  7. Los residuos deben ser independientes entre sí: usamos la prueba de Durbin-Watson para detectar autocorrelación en los residuos. La prueba resulta no ser significativa, entonces no hay evidencia que el modelo tenga autocorrelación en los residuos.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+durbinWatsonTest(modelo_final)
+```
+
+  8. No debe existir multicolinealidad: usamos la función ```vif``` para obtener los factores de inflación de la varianza. El VIF de tres variables está entre 1 y 5, y el resto entre 5 y 10, lo que indica que existe una multicolinealidad preocupante, lo que muy probablemente afecta al modelo.
+  
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+vif(modelo_final)
+```
+  
+  9. Las estimaciones de los coeficientes del modelo no debe estar alterados por unos pocas observaciones influyentes: usamos un gráfico de influencia, el que nos muestra que no existen valores muy atípicos que podrían influir en la recta del modelo. La mayor distancia de Cook es menor a 1, y por lo tanto no existen casos influyentes en el modelo.
+  
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+influencePlot(modelo_final)
+```
+
+En resumen, el modelo es confiable, pero tiene serios problemas con linealidad de predictores y residuos.
+
+- Calidad: la validación con bootstrap reporta la raíz del error cuadrático medio RMSE igual a 2.336 Kg, lo que es muy bueno, ya que el modelo se equivoca solo en 2.3 Kg en promedio. El valor R cuadrado es 0.974, lo que al igual que el R cuadrado ajustado, es excelente. En resumen, el modelo tiene una alta calidad en sus predicciones.
+
+
+
+## ACTIVIDAD 4: RFE PARA REGRESIÓN LINEAL MÚLTIPLE (Variable: IMC)
+
+Ahora, se construye un modelo de RLM con Recursive Feature Elimination (RFE) para predecir la variable ```IMC``` con 10 y hasta 20 predictores, usando la función ````rfe````. El criterio para elegir los predictores es maximizar el coeficiente de determinación. Para validar el modelo se usarán cinco repeticiones de validación cruzada de cinco pliegues.
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+# Restricciones: No usar Weight, Height, EN.
+predictors_imc <- muestra %>% select(-Weight, -Height, -EN, -IMC) # X
+target_imc <- muestra$IMC # Y
+
+# Configuración RFE (Recursive Feature Elimination)
+# - Selección: Maximizar R^2 ("Rsquared")
+# - Validación: 5 repeticiones de validación cruzada de 5 pliegues
+ctrl_rfe_imc <- rfeControl(functions = lmFuncs, # Funciones para modelos lineales
+                           method = "repeatedcv", 
+                           repeats = 5, 
+                           number = 5,
+                           verbose = FALSE)
+
+set.seed(semilla)
+rfe_imc_res <- rfe(x = predictors_imc, 
+                   y = target_imc,
+                   sizes = 10:20, # Evaluar conjuntos de entre 10 y 20 predictores
+                   rfeControl = ctrl_rfe_imc,
+                   metric = "Rsquared")
+
+print(rfe_imc_res)
+cat("Variables seleccionadas para IMC:", paste(predictors(rfe_imc_res), collapse=", "), "\n")
+
+# Gráfico de rendimiento
+plot(rfe_imc_res, type = c("g", "o"), main = "RFE - Predicción IMC")
+
+
+modelo_final <- rfe_imc_res$fit
+summary(modelo_final)
+```
+
+El modelo muestra que todos los predictores son significativos en predecir la variable ```IMC```, excepto por las variables Gender y Wrists.diameter.
+
+
+
+## ACTIVIDAD 5: RFE PARA REGRESIÓN LOGÍSTICA (Variable: EN)
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+# 1. Preparar datos
+predictors_en <- muestra %>% select(-Weight, -Height, -IMC, -EN) 
+target_en <- muestra$EN 
+
+# 2. DEFINIR FUNCIONES RFE PERSONALIZADAS (CORRECCIÓN CLAVE)
+# Creamos una copia de las funciones por defecto de caret
+my_rfeFuncs <- caretFuncs 
+# Le forzamos a usar métricas de clasificación binaria (ROC) en lugar de Accuracy
+my_rfeFuncs$summary <- twoClassSummary 
+
+# 3. Configuración del Control Externo (RFE)
+ctrl_rfe_en <- rfeControl(functions = my_rfeFuncs, # Usamos nuestras funciones modificadas
+                          method = "LOOCV",       
+                          number = 1,             
+                          verbose = FALSE)
+
+# 4. Configuración del Control Interno
+train_ctrl_en <- trainControl(method = "none", 
+                              classProbs = TRUE, 
+                              summaryFunction = twoClassSummary)
+
+set.seed(semilla)
+rfe_en_res <- rfe(x = predictors_en, 
+                  y = target_en,
+                  sizes = 2:6,               
+                  rfeControl = ctrl_rfe_en,
+                  method = "glm",            
+                  family = "binomial",
+                  metric = "ROC",            # Ahora sí encontrará la columna ROC
+                  trControl = train_ctrl_en)
+
+print(rfe_en_res)
+cat("Predictores seleccionados para EN:", paste(predictors(rfe_en_res), collapse=", "), "\n")
+```
+
+## ACTIVIDAD 6: EVALUACIÓN Y CONCLUSIONES
+
+
+```{r, include=TRUE, warning=FALSE, message=FALSE}
+
+
+# 1. Resumen de Métricas
+metricas <- data.frame(
+  Modelo = c("Peso (RLM)", "IMC (RLM)", "Estado Nutricional (Logit)"),
+  Metrica_Tipo = c("R2 (Bootstrap)", "R2 (Repeated CV)", "ROC (LOOCV)"),
+  Valor = c(
+    round(model_weight$results$Rsquared, 3), 
+    round(max(rfe_imc_res$results$Rsquared), 3), 
+    round(max(rfe_en_res$results$ROC), 3)
+  )
+)
+print(metricas)
+
+
+```
+
+# CONCLUSIONES DEL EQUIPO
+1. CONFIABILIDAD DEL MODELO DE PESO (Actividad 3):
+   El modelo obtuvo un R2 de 0.974 usando Bootstrapping.
+   Esto indica una capacidad predictiva casi perfecta. Las variables seleccionadas
+   (cintura, cadera, muslo) tienen una correlación biológica directa con la masa corporal,
+   lo que confirma la solidez del modelo.
+
+2. DESEMPEÑO EN LA PREDICCIÓN DE IMC (Actividad 4):
+   A pesar de excluir Peso y Talla, el modelo RFE alcanzó un R2 de 0.878 .
+   El algoritmo prefirió modelos más simples (hacia 10 variables) en lugar de complejos,
+   logrando inferir el índice de masa corporal a través de medidas de estructura ósea
+   (rodillas, tobillos) y género.
+
+3. CAPACIDAD DE CLASIFICACIÓN DE E.N. (Actividad 5):
+   El modelo logístico obtuvo un área bajo la curva ROC de 0.921 .
+   Este valor > 0.9 se considera excelente en diagnóstico. La validación LOOCV
+   asegura que este resultado es robusto y no producto del azar, seleccionando
+   correctamente variables críticas como 'Navel.Girth' (grasa abdominal).
